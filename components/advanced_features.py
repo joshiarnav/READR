@@ -25,8 +25,17 @@ class AdvancedFeatures:
     
     def __init__(self):
         """Initialize advanced features."""
-        # Initialize LLM with minimal parameters to avoid compatibility issues
-        self.llm = ChatOpenAI(temperature=0.7)
+        # Initialize LLM with API key
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            st.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
+            self.llm = None
+        else:
+            self.llm = ChatOpenAI(
+                temperature=0.7,
+                model="gpt-3.5-turbo",
+                api_key=api_key
+            )
     
     def create_conversational_chain(self, vectorstore):
         """Create a conversational retrieval chain for more natural interactions.
@@ -82,41 +91,93 @@ class AdvancedFeatures:
         Returns:
             dict: Visualization data
         """
+        if not self.llm:
+            st.error("LLM not initialized. Please check your OpenAI API key.")
+            return {}
+            
         # Prepare prompt based on analysis type
         if analysis_type == "Character Analysis":
             prompt = f"""Analyze the characters in the following text and generate a JSON object with:
-            1. Character names as keys
-            2. For each character, include: traits, relationships, development, importance (1-10)
-            Text: {text}
+            1. A "characters" key containing a dictionary where:
+               - Each key is a character name
+               - Each value is a dictionary with:
+                 - "traits": list of character traits
+                 - "relationships": dictionary of relationships with other characters
+                 - "development": description of character development
+                 - "importance": number from 1-10
+            Text: {text[:2000]}...
+            Example format:
+            {{
+                "characters": {{
+                    "Captain Ahab": {{
+                        "traits": ["obsessive", "determined", "tragic"],
+                        "relationships": {{
+                            "Ishmael": "narrator and observer",
+                            "Moby Dick": "obsession and nemesis"
+                        }},
+                        "development": "Starts as respected captain, descends into obsession",
+                        "importance": 10
+                    }}
+                }}
+            }}
             Output only valid JSON without explanation."""
         
         elif analysis_type == "Themes":
             prompt = f"""Identify the main themes in the following text and generate a JSON object with:
-            1. Theme names as keys
-            2. For each theme, include: description, evidence, importance (1-10)
-            Text: {text}
+            1. A "themes" key containing a dictionary where:
+               - Each key is a theme name
+               - Each value is a dictionary with:
+                 - "description": detailed explanation of the theme
+                 - "evidence": list of key examples from the text
+                 - "importance": number from 1-10
+            Text: {text[:2000]}...
+            Example format:
+            {{
+                "themes": {{
+                    "Revenge": {{
+                        "description": "The destructive nature of revenge and obsession",
+                        "evidence": ["Ahab's quest for revenge", "The final confrontation"],
+                        "importance": 9
+                    }}
+                }}
+            }}
             Output only valid JSON without explanation."""
         
         elif analysis_type == "Symbolism":
             prompt = f"""Identify symbols in the following text and generate a JSON object with:
-            1. Symbol names as keys
-            2. For each symbol, include: meaning, occurrences, significance (1-10)
-            Text: {text}
+            1. A "symbols" key containing a dictionary where:
+               - Each key is a symbol name
+               - Each value is a dictionary with:
+                 - "meaning": detailed explanation of the symbol's meaning
+                 - "occurrences": list of key occurrences in the text
+                 - "significance": number from 1-10
+            Text: {text[:2000]}...
+            Example format:
+            {{
+                "symbols": {{
+                    "The White Whale": {{
+                        "meaning": "Represents the unknowable and nature's power",
+                        "occurrences": ["First mentioned in Chapter 1", "Final confrontation"],
+                        "significance": 10
+                    }}
+                }}
+            }}
             Output only valid JSON without explanation."""
         
         else:  # General analysis
             prompt = f"""Perform a general literary analysis of the following text and generate a JSON object with:
-            1. Key elements: characters, themes, symbols, setting
-            2. For each element, include relevant details and importance (1-10)
-            Text: {text}
+            1. "characters": dictionary of character information
+            2. "themes": dictionary of theme information
+            3. "symbols": dictionary of symbol information
+            Each section should follow the format shown in the previous examples.
+            Text: {text[:2000]}...
             Output only valid JSON without explanation."""
         
-        # Generate analysis
-        response = self.llm.invoke(prompt)
-        
-        # Parse JSON response
         try:
-            # Extract JSON from response if needed
+            # Generate analysis
+            response = self.llm.invoke(prompt)
+            
+            # Parse JSON response
             response_text = response.content
             # Find JSON in the response
             json_start = response_text.find('{')
@@ -126,9 +187,19 @@ class AdvancedFeatures:
                 visualization_data = json.loads(json_str)
             else:
                 visualization_data = json.loads(response_text)
+                
+            # Ensure the data has the expected structure
+            if analysis_type == "Character Analysis" and "characters" not in visualization_data:
+                visualization_data = {"characters": visualization_data}
+            elif analysis_type == "Themes" and "themes" not in visualization_data:
+                visualization_data = {"themes": visualization_data}
+            elif analysis_type == "Symbolism" and "symbols" not in visualization_data:
+                visualization_data = {"symbols": visualization_data}
+                
             return visualization_data
+            
         except Exception as e:
-            st.error(f"Error parsing visualization data: {str(e)}")
+            st.error(f"Error generating visualization data: {str(e)}")
             return {}
     
     def compare_literary_works(self, text1, text2):
@@ -197,11 +268,25 @@ class AdvancedFeatures:
         1. Summary
         2. Key Characters (name, description, significance)
         3. Major Themes (name, explanation, textual evidence)
-        4. Important Symbols (symbol, meaning, occurrences)
+        4. Important Symbols (for each symbol, use its actual name/object as the key, not "Symbol 1", "Symbol 2", etc. Include meaning and occurrences)
         5. Discussion Questions (at least 5 thought-provoking questions)
         6. Key Passages (passage text, page/location, significance)
         7. Historical Context (relevant historical information)
         8. Critical Perspectives (different ways to interpret the text)
+        
+        For the Important Symbols section, use the actual symbol names as keys. For example:
+        {{
+            "Important Symbols": {{
+                "The White Whale": {{
+                    "meaning": "Represents the unknowable and nature's power",
+                    "occurrences": "Appears throughout the novel as Ahab's obsession"
+                }},
+                "The Sea": {{
+                    "meaning": "Symbolizes both life and death",
+                    "occurrences": "Present in all major scenes"
+                }}
+            }}
+        }}
         
         Output only valid JSON without explanation."""
         

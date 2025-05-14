@@ -24,10 +24,35 @@ class LiteraryVisualizations:
         # Create a graph
         G = nx.Graph()
         
-        # Add nodes (characters)
-        for character, info in character_data.items():
-            importance = info.get('importance', 5)  # Default importance if not specified
-            G.add_node(character, size=importance)
+        # Sort characters by their original importance to maintain relative ranking
+        sorted_characters = sorted(
+            character_data.items(),
+            key=lambda x: x[1].get('importance', 5),
+            reverse=True
+        )
+        
+        # Redistribute importance values between 3 and 8
+        total_chars = len(sorted_characters)
+        if total_chars > 0:
+            # Calculate importance step size
+            step = 5.0 / (total_chars - 1) if total_chars > 1 else 0
+            
+            # Create new character data with redistributed importance
+            redistributed_data = {}
+            for i, (char, info) in enumerate(sorted_characters):
+                # Calculate new importance value between 3 and 8
+                new_importance = 8 - (i * step)
+                # Create new info dict with updated importance
+                new_info = info.copy()
+                new_info['importance'] = new_importance
+                redistributed_data[char] = new_info
+                # Add node with new importance
+                G.add_node(char, size=new_importance)
+        else:
+            # If no characters, use original data
+            for character, info in character_data.items():
+                importance = info.get('importance', 5)
+                G.add_node(character, size=importance)
         
         # Add edges (relationships)
         for character, info in character_data.items():
@@ -38,7 +63,7 @@ class LiteraryVisualizations:
                         G.add_edge(character, related_char, relationship=relationship)
         
         # Get node positions using a layout algorithm
-        pos = nx.spring_layout(G)
+        pos = nx.spring_layout(G, k=1, iterations=50)
         
         # Create edge trace
         edge_x = []
@@ -51,43 +76,79 @@ class LiteraryVisualizations:
             edge_x.extend([x0, x1, None])
             edge_y.extend([y0, y1, None])
             relationship = G.edges[edge].get('relationship', '')
+            # Truncate relationship to 2-3 words if it's too long
+            relationship_words = relationship.split()
+            if len(relationship_words) > 3:
+                relationship = ' '.join(relationship_words[:3]) + '...'
             edge_text.append(relationship)
         
         edge_trace = go.Scatter(
             x=edge_x, y=edge_y,
-            line=dict(width=0.5, color='#888'),
-            hoverinfo='none',
-            mode='lines')
+            line=dict(width=1.5, color='#888'),
+            hoverinfo='text',
+            text=edge_text,
+            mode='lines+text',
+            textposition='middle center',
+            textfont=dict(size=10, color='#666'),
+            hoverlabel=dict(bgcolor='white', font_size=12)
+        )
         
         # Create node trace
         node_x = []
         node_y = []
         node_text = []
         node_size = []
+        node_color = []
+        
+        # Calculate size range based on importance values
+        min_size = 20  # Minimum node size
+        max_size = 60  # Maximum node size
         
         for node in G.nodes():
             x, y = pos[node]
             node_x.append(x)
             node_y.append(y)
-            node_text.append(node)
-            node_size.append(G.nodes[node]['size'] * 10)  # Scale size for visibility
+            
+            # Create hover text with character information
+            char_info = redistributed_data.get(node, character_data[node])
+            hover_text = f"<b>{node}</b><br>"
+            if 'traits' in char_info:
+                hover_text += f"Traits: {', '.join(char_info['traits'])}<br>"
+            if 'development' in char_info:
+                hover_text += f"Development: {char_info['development']}<br>"
+            if 'importance' in char_info:
+                hover_text += f"Importance: {char_info['importance']:.1f}/10"
+            
+            node_text.append(hover_text)
+            
+            # Calculate node size based on importance
+            importance = G.nodes[node]['size']
+            # Scale size between min_size and max_size based on importance (3-8)
+            size = min_size + (max_size - min_size) * (importance - 3) / 5
+            node_size.append(size)
+            node_color.append(importance)  # Color based on importance
         
         node_trace = go.Scatter(
             x=node_x, y=node_y,
-            mode='markers',
+            mode='markers+text',
             hoverinfo='text',
-            text=node_text,
+            text=[node for node in G.nodes()],  # Show character names
+            textposition="top center",
+            textfont=dict(size=12, color='black'),
             marker=dict(
                 showscale=True,
                 colorscale='YlGnBu',
                 size=node_size,
+                color=node_color,
+                line=dict(width=2, color='white'),
                 colorbar=dict(
                     thickness=15,
-                    title='Character Importance',
+                    title='Character<br>Importance',
                     xanchor='left',
                     titleside='right'
-                ),
-                line_width=2))
+                )
+            )
+        )
         
         # Create figure
         fig = go.Figure(data=[edge_trace, node_trace],
@@ -98,8 +159,35 @@ class LiteraryVisualizations:
                             hovermode='closest',
                             margin=dict(b=20, l=5, r=5, t=40),
                             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
-                        )
+                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                            plot_bgcolor='rgba(255,255,255,1)'
+                        ))
+        
+        # Add annotations for relationship descriptions
+        for edge in G.edges():
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+            relationship = G.edges[edge].get('relationship', '')
+            # Truncate relationship to 2-3 words if it's too long
+            relationship_words = relationship.split()
+            if len(relationship_words) > 3:
+                relationship = ' '.join(relationship_words[:3]) + '...'
+            
+            # Calculate midpoint for annotation
+            mid_x = (x0 + x1) / 2
+            mid_y = (y0 + y1) / 2
+            
+            fig.add_annotation(
+                x=mid_x,
+                y=mid_y,
+                text=relationship,
+                showarrow=False,
+                font=dict(size=10, color='#666'),
+                bgcolor='rgba(255,255,255,0.8)',
+                bordercolor='#888',
+                borderwidth=1,
+                borderpad=4
+            )
         
         return fig
     

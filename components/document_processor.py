@@ -37,6 +37,42 @@ class DocumentProcessor:
                 text.append(page_text.strip())
         return "\n\n".join(text)
     
+    def process_text(self, text: str, metadata: dict) -> Chroma:
+        """Process text from external sources and create a vector store.
+        
+        Args:
+            text: The text content to process
+            metadata: Metadata about the text source
+            
+        Returns:
+            Chroma: Vector store containing text chunks
+        """
+        # Split text into chunks
+        chunks = self.text_splitter.split_text(text)
+        
+        # Create metadata for each chunk
+        chunk_metadata = []
+        for i, _ in enumerate(chunks):
+            # Create metadata with source information
+            metadata = {
+                "chunk_id": str(i),
+                "source": metadata.get("sources", ["unknown"])[0],
+                "title": metadata.get("wikipedia", {}).get("title") or metadata.get("google_books", {}).get("title", "Unknown"),
+                "url": metadata.get("wikipedia", {}).get("url") or metadata.get("google_books", {}).get("preview_url", ""),
+                "authors": ", ".join(metadata.get("google_books", {}).get("authors", [])) if metadata.get("google_books") else ""
+            }
+            chunk_metadata.append(metadata)
+        
+        # Create vector store
+        vectorstore = Chroma.from_texts(
+            texts=chunks,
+            embedding=self.embeddings,
+            metadatas=chunk_metadata,
+            persist_directory="./chroma_db"
+        )
+        
+        return vectorstore
+    
     def process_documents(self, uploaded_files):
         """Process uploaded documents and create a vector store.
         
